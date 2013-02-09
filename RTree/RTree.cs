@@ -68,7 +68,7 @@ namespace RTree
         private Dictionary<int, Node<T>> nodeMap = new Dictionary<int, Node<T>>();
 
         // internal consistency checking - set to true if debugging tree corruption
-        private const bool INTERNAL_CONSISTENCY_CHECKING = false;
+        public bool INTERNAL_CONSISTENCY_CHECKING = false;
 
         // used to mark the status of entries during a Node&lt;T&gt; split
         private const int ENTRY_STATUS_ASSIGNED = 0;
@@ -478,9 +478,9 @@ namespace RTree
             }
         }
 
-        /**
-        * @see com.infomatiq.jsi.SpatialIndex#getBounds()
-        */
+        /// <summary>
+        /// Returns the bounds of all the entries in the spatial index, or null if there are no entries.
+        /// </summary>
         public Rectangle getBounds()
         {
             Rectangle bounds = null;
@@ -493,9 +493,9 @@ namespace RTree
             return bounds;
         }
 
-        /**
-         * @see com.infomatiq.jsi.SpatialIndex#getVersion()
-         */
+        /// <summary>
+        /// Returns a string identifying the type of spatial index, and the version number
+        /// </summary>
         public string getVersion()
         {
             return "RTree-" + version;
@@ -504,10 +504,11 @@ namespace RTree
         // end of SpatialIndex methods
         //-------------------------------------------------------------------------
 
-        /**
-         * Get the next available Node&lt;T&gt; ID. Reuse deleted Node&lt;T&gt; IDs if
-         * possible
-         */
+
+        /// <summary>
+        /// Get the next available Node&lt;T&gt; ID. Reuse deleted Node&lt;T&gt; IDs if
+        /// possible
+        /// </summary>
         private int getNextNodeId()
         {
             int nextNodeId = 0;
@@ -927,15 +928,16 @@ namespace RTree
             }
         }
 
-        /**
-         * Used by delete(). Ensures that all nodes from the passed node
-         * up to the root have the minimum number of entries.
-         * 
-         * Note that the parent and parentEntry stacks are expected to
-         * contain the nodeIds of all parents up to the root.
-         */
-
         private Rectangle oldRectangle = new Rectangle(0, 0, 0, 0,0,0);
+
+        /// <summary>
+        /// Used by delete(). Ensures that all nodes from the passed node
+        /// up to the root have the minimum number of entries.
+        /// <para>
+        /// Note that the parent and parentEntry stacks are expected to
+        /// contain the nodeIds of all parents up to the root.
+        /// </para>
+        /// </summary>
         private void condenseTree(Node<T> l)
         {
             // CT1 [Initialize] Set n=l. Set the list of eliminated
@@ -993,10 +995,10 @@ namespace RTree
                 deletedNodeIds.Push(e.nodeId);
             }
         }
-
-        /**
-         *  Used by add(). Chooses a leaf to add the rectangle to.
-         */
+       
+        /// <summary>
+        /// Used by add(). Chooses a leaf to add the rectangle to.
+        /// </summary>
         private Node<T> chooseNode(Rectangle r, int level)
         {
             // CL1 [Initialize] Set N to be the root node
@@ -1044,10 +1046,10 @@ namespace RTree
             }
         }
 
-        /**
-         * Ascend from a leaf Node&lt;T&gt; L to the root, adjusting covering rectangles and
-         * propagating Node&lt;T&gt; splits as necessary.
-         */
+        /// <summary>
+        /// Ascend from a leaf Node&lt;T&gt; L to the root, adjusting covering rectangles and
+        /// propagating Node&lt;T&gt; splits as necessary.
+        /// </summary>
         private Node<T> adjustTree(Node<T> n, Node<T> nn)
         {
             // AT1 [Initialize] Set N=L. If L was split previously, set NN to be 
@@ -1110,9 +1112,9 @@ namespace RTree
             return nn;
         }
 
-        /**
-         * Check the consistency of the tree.
-         */
+        /// <summary>
+        /// Check the consistency of the tree.
+        /// </summary>
         private void checkConsistency(int nodeId, int expectedLevel, Rectangle expectedMBR)
         {
             // go through the tree, and check that the internal data structures of 
@@ -1161,10 +1163,10 @@ namespace RTree
             }
         }
 
-        /**
-         * Given a Node<T> object, calculate the Node<T> MBR from it's entries.
-         * Used in consistency checking
-         */
+        /// <summary>
+        /// Given a Node<T> object, calculate the Node<T> MBR from it's entries.
+        /// Used in consistency checking
+        /// </summary>
         private Rectangle calculateMBR(Node<T> n)
         {
             Rectangle mbr = new Rectangle(n.entries[0].min, n.entries[0].max);
@@ -1175,6 +1177,7 @@ namespace RTree
             }
             return mbr;
         }
+
 
         public int Count
         {

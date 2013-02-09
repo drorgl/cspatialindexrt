@@ -1,6 +1,7 @@
-//   Point.java
+//   Point.java version 1.0b2p1
 //   Java Spatial Index Library
 //   Copyright (C) 2002 Infomatiq Limited
+//   Copyright (C) 2008 Aled Morris aled@sourceforge.net
 //  
 //  This library is free software; you can redistribute it and/or
 //  modify it under the terms of the GNU Lesser General Public
@@ -22,14 +23,9 @@ namespace RTree
 
     /// <summary>
     /// Currently hardcoded to 3 dimensions, but could be extended.
-    /// author  aled@sourceforge.net
-    /// version 1.0b2p1
     /// </summary>
     public class Point
     {
-      
-      
-      
         /// <summary>
         /// Number of dimensions in a point. In theory this
         /// could be exended to three or more dimensions.
@@ -54,6 +50,19 @@ namespace RTree
             coordinates[0] = x;
             coordinates[1] = y;
             coordinates[2] = z;
+        }
+
+        /// <summary>
+        /// retrieve coordinate from point
+        /// <para>probable dimensions:</para>
+        /// <para>X = 0, Y = 1, Z = 2</para>
+        /// </summary>
+        public float? get(int dimension)
+        {
+            if (coordinates.Length >= dimension)
+                return coordinates[dimension];
+
+            return null;
         }
     }
 }
