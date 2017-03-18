@@ -102,7 +102,7 @@ namespace RTree
         // List of nearest rectangles. Use a member variable to
         // avoid recreating the object each time nearest() is called.
         //private TIntArrayList nearestIds = new TIntArrayList();
-        List<int> nearestIds = new List<int>();
+        //List<int> nearestIds = new List<int>();
 
         //Added dictionaries to support generic objects..
         //possibility to change the code to support objects without dictionaries.
@@ -369,7 +369,9 @@ namespace RTree
         {
             Node<T> rootNode = getNode(rootNodeId);
 
-            nearest(p, rootNode, furthestDistance);
+            List<int> nearestIds = new List<int>();
+
+            nearest(p, rootNode,nearestIds, furthestDistance);
 
             foreach (int id in nearestIds)
                 v(id);
@@ -868,7 +870,7 @@ namespace RTree
         /// <param name="n"></param>
         /// <param name="nearestDistance"></param>
         /// <returns></returns>
-        private float nearest(Point p, Node<T> n, float nearestDistance)
+        private float nearest(Point p, Node<T> n, List<int> nearestIds , float nearestDistance)
         {
             for (int i = 0; i < n.entryCount; i++)
             {
@@ -891,7 +893,7 @@ namespace RTree
                     if (tempDistance <= nearestDistance)
                     {
                         // search the child node
-                        nearestDistance = nearest(p, getNode(n.ids[i]), nearestDistance);
+                        nearestDistance = nearest(p, getNode(n.ids[i]),nearestIds, nearestDistance);
                     }
                 }
             }
