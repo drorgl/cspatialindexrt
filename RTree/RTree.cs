@@ -20,11 +20,11 @@
 //  Ported to C# By Dror Gluska, April 9th, 2009
 
 
-using log4net.Repository.Hierarchy;
-using log4net;
+using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System;
 using System.Collections;
+using Microsoft.Extensions.Logging.Abstractions;
 
 
 namespace RTree
@@ -51,8 +51,8 @@ namespace RTree
     /// <typeparam name="T"></typeparam>
     public class RTree<T>
     {
-        private ILog log = null;
-        private ILog deleteLog = null;
+        private ILogger log = null;
+        private ILogger deleteLog = null;
 
         private const string version = "1.0b2p1";
 
@@ -116,9 +116,9 @@ namespace RTree
         /// <summary>
         /// Initialize implementation dependent properties of the RTree.
         /// </summary>
-        public RTree()
+        public RTree(ILoggerFactory loggerFactory=null)
         {
-            init();
+            init(loggerFactory);
         }
 
         /// <summary>
@@ -131,32 +131,34 @@ namespace RTree
         ///in a node. The default value is half of the MaxNodeEntries value (rounded
         ///down), which is used if the property is not specified or is less than 1.
         ///</param>
-        public RTree(int MaxNodeEntries, int MinNodeEntries)
+        public RTree(int MaxNodeEntries, int MinNodeEntries, ILoggerFactory loggerFactory=null)
         {
             minNodeEntries = MinNodeEntries;
             maxNodeEntries = MaxNodeEntries;
-            init();
+            init(loggerFactory);
         }
 
-        private void init()
+        private void init(ILoggerFactory loggerFactory)
         {
             //initialize logs
-            log = LogManager.GetLogger(typeof(RTree<T>).FullName);
-            deleteLog = LogManager.GetLogger(typeof(RTree<T>).FullName + "-delete");
+            var className = nameof(RTree<T>);
+            var deleteLogName = $"{className}-delete";
+            log = loggerFactory == null ? NullLoggerProvider.Instance.CreateLogger(className) : loggerFactory.CreateLogger(className);
+            deleteLog = loggerFactory == null ? NullLoggerProvider.Instance.CreateLogger(deleteLogName) : loggerFactory.CreateLogger(deleteLogName);
 
             // Obviously a Node&lt;T&gt; with less than 2 entries cannot be split.
             // The Node&lt;T&gt; splitting algorithm will work with only 2 entries
             // per node, but will be inefficient.
             if (maxNodeEntries < 2)
             {
-                log.Warn("Invalid MaxNodeEntries = " + maxNodeEntries + " Resetting to default value of " + DEFAULT_MAX_NODE_ENTRIES);
+                log.LogWarning("Invalid MaxNodeEntries = " + maxNodeEntries + " Resetting to default value of " + DEFAULT_MAX_NODE_ENTRIES);
                 maxNodeEntries = DEFAULT_MAX_NODE_ENTRIES;
             }
 
             // The MinNodeEntries must be less than or equal to (int) (MaxNodeEntries / 2)
             if (minNodeEntries < 1 || minNodeEntries > maxNodeEntries / 2)
             {
-                log.Warn("MinNodeEntries must be between 1 and MaxNodeEntries / 2");
+                log.LogWarning("MinNodeEntries must be between 1 and MaxNodeEntries / 2");
                 minNodeEntries = maxNodeEntries / 2;
             }
 
@@ -171,7 +173,7 @@ namespace RTree
             Node<T> root = new Node<T>(rootNodeId, 1, maxNodeEntries);
             nodeMap.Add(rootNodeId, root);
 
-            log.Info("init() " + " MaxNodeEntries = " + maxNodeEntries + ", MinNodeEntries = " + minNodeEntries);
+            log.LogInformation("init() " + " MaxNodeEntries = " + maxNodeEntries + ", MinNodeEntries = " + minNodeEntries);
         }
 
         /// <summary>
@@ -192,9 +194,9 @@ namespace RTree
 
         private void add(Rectangle r, int id)
         {
-            if (log.IsDebugEnabled)
+            if (log.IsEnabled(LogLevel.Debug))
             {
-                log.Debug("Adding rectangle " + r + ", id " + id);
+                log.LogDebug("Adding rectangle " + r + ", id " + id);
             }
 
             add(r.copy(), id, 1);
@@ -299,7 +301,7 @@ namespace RTree
 
                 if (!n.isLeaf())
                 {
-                    deleteLog.Debug("searching Node<T> " + n.nodeId + ", from index " + startIndex);
+                    deleteLog.LogDebug("searching Node<T> " + n.nodeId + ", from index " + startIndex);
                     bool contains = false;
                     for (int i = startIndex; i < n.entryCount; i++)
                     {
@@ -573,7 +575,7 @@ namespace RTree
 
             // debug code
             float initialArea = 0;
-            if (log.IsDebugEnabled)
+            if (log.IsEnabled(LogLevel.Debug))
             {
                 Rectangle union = n.mbr.union(newRect);
                 initialArea = union.area();
@@ -636,21 +638,21 @@ namespace RTree
             {
                 if (!n.mbr.Equals(calculateMBR(n)))
                 {
-                    log.Error("Error: splitNode old Node<T> MBR wrong");
+                    log.LogError("Error: splitNode old Node<T> MBR wrong");
                 }
 
                 if (!newNode.mbr.Equals(calculateMBR(newNode)))
                 {
-                    log.Error("Error: splitNode new Node<T> MBR wrong");
+                    log.LogError("Error: splitNode new Node<T> MBR wrong");
                 }
             }
 
             // debug code
-            if (log.IsDebugEnabled)
+            if (log.IsEnabled(LogLevel.Debug))
             {
                 float newArea = n.mbr.area() + newNode.mbr.area();
                 float percentageIncrease = (100 * (newArea - initialArea)) / initialArea;
-                log.Debug("Node " + n.nodeId + " split. New area increased by " + percentageIncrease + "%");
+                log.LogDebug("Node " + n.nodeId + " split. New area increased by " + percentageIncrease + "%");
             }
 
             return newNode;
@@ -677,9 +679,9 @@ namespace RTree
             // the new rectangle aswell.
             n.mbr.add(newRect);
 
-            if (log.IsDebugEnabled)
+            if (log.IsEnabled(LogLevel.Debug))
             {
-                log.Debug("pickSeeds(): NodeId = " + n.nodeId + ", newRect = " + newRect);
+                log.LogDebug("pickSeeds(): NodeId = " + n.nodeId + ", newRect = " + newRect);
             }
 
             for (int d = 0; d < Rectangle.DIMENSIONS; d++)
@@ -715,12 +717,12 @@ namespace RTree
 
                     if (normalizedSeparation > 1 || normalizedSeparation < -1)
                     {
-                        log.Error("Invalid normalized separation");
+                        log.LogError("Invalid normalized separation");
                     }
 
-                    if (log.IsDebugEnabled)
+                    if (log.IsEnabled(LogLevel.Debug))
                     {
-                        log.Debug("Entry " + i + ", dimension " + d + ": HighestLow = " + tempHighestLow +
+                        log.LogDebug("Entry " + i + ", dimension " + d + ": HighestLow = " + tempHighestLow +
                                   " (index " + tempHighestLowIndex + ")" + ", LowestHigh = " +
                                   tempLowestHigh + " (index " + tempLowestHighIndex + ", NormalizedSeparation = " + normalizedSeparation);
                     }
@@ -782,9 +784,9 @@ namespace RTree
 
             maxDifference = float.NegativeInfinity;
 
-            if (log.IsDebugEnabled)
+            if (log.IsEnabled(LogLevel.Debug))
             {
-                log.Debug("pickNext()");
+                log.LogDebug("pickNext()");
             }
 
             for (int i = 0; i < maxNodeEntries; i++)
@@ -794,7 +796,7 @@ namespace RTree
 
                     if (n.entries[i] == null)
                     {
-                        log.Error("Error: Node<T> " + n.nodeId + ", entry " + i + " is null");
+                        log.LogError("Error: Node<T> " + n.nodeId + ", entry " + i + " is null");
                     }
 
                     float nIncrease = n.mbr.enlargement(n.entries[i]);
@@ -831,9 +833,9 @@ namespace RTree
                         }
                         maxDifference = difference;
                     }
-                    if (log.IsDebugEnabled)
+                    if (log.IsEnabled(LogLevel.Debug))
                     {
-                        log.Debug("Entry " + i + " group0 increase = " + nIncrease + ", group1 increase = " + newNodeIncrease +
+                        log.LogDebug("Entry " + i + " group0 increase = " + nIncrease + ", group1 increase = " + newNodeIncrease +
                                   ", diff = " + difference + ", MaxDiff = " + maxDifference + " (entry " + next + ")");
                     }
                 }
@@ -1013,7 +1015,7 @@ namespace RTree
             {
                 if (n == null)
                 {
-                    log.Error("Could not get root Node<T> (" + rootNodeId + ")");
+                    log.LogError("Could not get root Node<T> (" + rootNodeId + ")");
                 }
 
                 if (n.level == level)
@@ -1069,7 +1071,7 @@ namespace RTree
 
                 if (parent.ids[entry] != n.nodeId)
                 {
-                    log.Error("Error: entry " + entry + " in Node<T> " +
+                    log.LogError("Error: entry " + entry + " in Node<T> " +
                          parent.nodeId + " should point to Node<T> " +
                          n.nodeId + "; actually points to Node<T> " + parent.ids[entry]);
                 }
@@ -1125,37 +1127,37 @@ namespace RTree
 
             if (n == null)
             {
-                log.Error("Error: Could not read Node<T> " + nodeId);
+                log.LogError("Error: Could not read Node<T> " + nodeId);
             }
 
             if (n.level != expectedLevel)
             {
-                log.Error("Error: Node<T> " + nodeId + ", expected level " + expectedLevel + ", actual level " + n.level);
+                log.LogError("Error: Node<T> " + nodeId + ", expected level " + expectedLevel + ", actual level " + n.level);
             }
 
             Rectangle calculatedMBR = calculateMBR(n);
 
             if (!n.mbr.Equals(calculatedMBR))
             {
-                log.Error("Error: Node<T> " + nodeId + ", calculated MBR does not equal stored MBR");
+                log.LogError("Error: Node<T> " + nodeId + ", calculated MBR does not equal stored MBR");
             }
 
             if (expectedMBR != null && !n.mbr.Equals(expectedMBR))
             {
-                log.Error("Error: Node<T> " + nodeId + ", expected MBR (from parent) does not equal stored MBR");
+                log.LogError("Error: Node<T> " + nodeId + ", expected MBR (from parent) does not equal stored MBR");
             }
 
             // Check for corruption where a parent entry is the same object as the child MBR
             if (expectedMBR != null && n.mbr.sameObject(expectedMBR))
             {
-                log.Error("Error: Node<T> " + nodeId + " MBR using same rectangle object as parent's entry");
+                log.LogError("Error: Node<T> " + nodeId + " MBR using same rectangle object as parent's entry");
             }
 
             for (int i = 0; i < n.entryCount; i++)
             {
                 if (n.entries[i] == null)
                 {
-                    log.Error("Error: Node<T> " + nodeId + ", Entry " + i + " is null");
+                    log.LogError("Error: Node<T> " + nodeId + ", Entry " + i + " is null");
                 }
 
                 if (n.level > 1)
