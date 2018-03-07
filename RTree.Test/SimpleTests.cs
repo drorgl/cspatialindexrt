@@ -3,6 +3,7 @@ using System.Text;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Threading.Tasks;
 
 namespace RTree.Test
 {
@@ -108,6 +109,43 @@ namespace RTree.Test
             Assert.IsTrue(nearestlist.Count() > 0);
 
             Assert.AreEqual("Box1", nearestlist[0]);
+        }
+
+        /// <summary>
+        /// Not the most reliable test, but should catch simple errors
+        /// </summary>
+        [TestMethod]
+        public void TestMultithreading()
+        {
+            var instance = new RTree<string>();
+           
+            Parallel.For(0,100, i=>{
+                instance.Add(new Rectangle(0, 0, 0, 0, 0, 0), $"Origin-{Guid.NewGuid()}");
+                instance.Add(new Rectangle(1, 1, 1, 1, 1, 1), $"Box1-{Guid.NewGuid()}");
+
+                var rect_to_delete_name = $"Box 2-3-{Guid.NewGuid()}";
+                instance.Add(new Rectangle(2, 2, 3, 3, 2, 3), rect_to_delete_name);
+                instance.Add(new Rectangle(2, 2, 3, 3, 2, 3), $"Box 2-3-{Guid.NewGuid()}");
+
+                var instancelist = instance.Contains(new Rectangle(-1, -1, 2, 2, -1, 2));
+                Assert.IsTrue(instancelist.Count() > 0);
+
+                var intersectlist = instance.Intersects(new Rectangle(3, 3, 5, 5, 3, 5));
+                Assert.IsTrue(intersectlist.Count() > 1);
+                Assert.IsTrue(intersectlist[0].StartsWith("Box 2-3"));
+
+                var nearestlist = instance.Nearest(new Point(5, 5, 5), 10);
+
+                Assert.IsTrue(nearestlist[0].StartsWith("Box 2-3") );
+
+                instance.Delete(new Rectangle(2, 2, 3, 3, 2, 3), rect_to_delete_name);
+
+                nearestlist = instance.Nearest(new Point(5, 5, 5), 10);
+
+                Assert.IsTrue(nearestlist.Count() > 0);
+
+                Assert.IsTrue(nearestlist[0].StartsWith( "Box 2"));
+            });
         }
 
     }

@@ -20,12 +20,10 @@
 //  Ported to C# By Dror Gluska, April 9th, 2009
 
 
-using log4net.Repository.Hierarchy;
-using log4net;
 using System.Collections.Generic;
 using System;
-using System.Collections;
-
+using System.Diagnostics;
+using System.Threading;
 
 namespace RTree
 {
@@ -51,10 +49,10 @@ namespace RTree
     /// <typeparam name="T"></typeparam>
     public class RTree<T>
     {
-        private ILog log = null;
-        private ILog deleteLog = null;
+        private const int locking_timeout = 10000;
 
-        private const string version = "1.0b2p1";
+        private ReaderWriterLock locker = new ReaderWriterLock();
+        private const string version = "1.0b2p2";
 
         // parameters of the tree
         private const int DEFAULT_MAX_NODE_ENTRIES = 10;
@@ -106,12 +104,9 @@ namespace RTree
 
         //Added dictionaries to support generic objects..
         //possibility to change the code to support objects without dictionaries.
-        private Dictionary<int, T> IdsToItems = new Dictionary<int,T>();
-        private Dictionary<T,int> ItemsToIds = new Dictionary<T,int>();
+        private Dictionary<int, T> IdsToItems = new Dictionary<int, T>();
+        private Dictionary<T, int> ItemsToIds = new Dictionary<T, int>();
         private volatile int idcounter = int.MinValue;
-
-        //the recursion methods require a delegate to retrieve data
-        private delegate void intproc(int x);
 
         /// <summary>
         /// Initialize implementation dependent properties of the RTree.
@@ -140,23 +135,20 @@ namespace RTree
 
         private void init()
         {
-            //initialize logs
-            log = LogManager.GetLogger(typeof(RTree<T>).FullName);
-            deleteLog = LogManager.GetLogger(typeof(RTree<T>).FullName + "-delete");
-
+            locker.AcquireWriterLock(locking_timeout);
             // Obviously a Node&lt;T&gt; with less than 2 entries cannot be split.
             // The Node&lt;T&gt; splitting algorithm will work with only 2 entries
             // per node, but will be inefficient.
             if (maxNodeEntries < 2)
             {
-                log.Warn("Invalid MaxNodeEntries = " + maxNodeEntries + " Resetting to default value of " + DEFAULT_MAX_NODE_ENTRIES);
+                Debug.WriteLine($"Invalid MaxNodeEntries = {maxNodeEntries} Resetting to default value of {DEFAULT_MAX_NODE_ENTRIES}");
                 maxNodeEntries = DEFAULT_MAX_NODE_ENTRIES;
             }
 
             // The MinNodeEntries must be less than or equal to (int) (MaxNodeEntries / 2)
             if (minNodeEntries < 1 || minNodeEntries > maxNodeEntries / 2)
             {
-                log.Warn("MinNodeEntries must be between 1 and MaxNodeEntries / 2");
+                Debug.WriteLine("MinNodeEntries must be between 1 and MaxNodeEntries / 2");
                 minNodeEntries = maxNodeEntries / 2;
             }
 
@@ -171,7 +163,8 @@ namespace RTree
             Node<T> root = new Node<T>(rootNodeId, 1, maxNodeEntries);
             nodeMap.Add(rootNodeId, root);
 
-            log.Info("init() " + " MaxNodeEntries = " + maxNodeEntries + ", MinNodeEntries = " + minNodeEntries);
+            Debug.WriteLine($"init()  MaxNodeEntries = {maxNodeEntries}, MinNodeEntries = {minNodeEntries}");
+            locker.ReleaseWriterLock();
         }
 
         /// <summary>
@@ -181,6 +174,7 @@ namespace RTree
         /// <param name="item"></param>
         public void Add(Rectangle r, T item)
         {
+            locker.AcquireWriterLock(locking_timeout);
             idcounter++;
             int id = idcounter;
 
@@ -188,14 +182,12 @@ namespace RTree
             ItemsToIds.Add(item, id);
 
             add(r, id);
+            locker.ReleaseWriterLock();
         }
 
         private void add(Rectangle r, int id)
         {
-            if (log.IsDebugEnabled)
-            {
-                log.Debug("Adding rectangle " + r + ", id " + id);
-            }
+            Debug.WriteLine($"Adding rectangle {r}, id {id}");
 
             add(r.copy(), id, 1);
 
@@ -260,6 +252,7 @@ namespace RTree
         /// <returns></returns>
         public bool Delete(Rectangle r, T item)
         {
+            locker.AcquireWriterLock(locking_timeout);
             int id = ItemsToIds[item];
 
             bool success = delete(r, id);
@@ -268,6 +261,7 @@ namespace RTree
                 IdsToItems.Remove(id);
                 ItemsToIds.Remove(item);
             }
+            locker.ReleaseWriterLock();
             return success;
         }
 
@@ -299,7 +293,7 @@ namespace RTree
 
                 if (!n.isLeaf())
                 {
-                    deleteLog.Debug("searching Node<T> " + n.nodeId + ", from index " + startIndex);
+                    Debug.WriteLine($"searching Node<T> {n.nodeId}, from index {startIndex}");
                     bool contains = false;
                     for (int i = startIndex; i < n.entryCount; i++)
                     {
@@ -357,21 +351,23 @@ namespace RTree
         public List<T> Nearest(Point p, float furthestDistance)
         {
             List<T> retval = new List<T>();
-            nearest(p, delegate(int id)
+            locker.AcquireReaderLock(locking_timeout);
+            nearest(p,  (int id)=>
             {
                 retval.Add(IdsToItems[id]);
             }, furthestDistance);
+            locker.ReleaseReaderLock();
             return retval;
         }
 
 
-        private void nearest(Point p, intproc v, float furthestDistance)
+        private void nearest(Point p, Action<int> v, float furthestDistance)
         {
             Node<T> rootNode = getNode(rootNodeId);
 
             List<int> nearestIds = new List<int>();
 
-            nearest(p, rootNode,nearestIds, furthestDistance);
+            nearest(p, rootNode, nearestIds, furthestDistance);
 
             foreach (int id in nearestIds)
                 v(id);
@@ -386,15 +382,17 @@ namespace RTree
         public List<T> Intersects(Rectangle r)
         {
             List<T> retval = new List<T>();
-            intersects(r, delegate(int id)
+            locker.AcquireReaderLock(locking_timeout);
+            intersects(r, (int id)=>
             {
                 retval.Add(IdsToItems[id]);
             });
+            locker.ReleaseReaderLock();
             return retval;
         }
 
 
-        private void intersects(Rectangle r, intproc v)
+        private void intersects(Rectangle r, Action<int> v)
         {
             Node<T> rootNode = getNode(rootNodeId);
             intersects(r, v, rootNode);
@@ -408,15 +406,17 @@ namespace RTree
         public List<T> Contains(Rectangle r)
         {
             List<T> retval = new List<T>();
-            contains(r, delegate(int id)
+            locker.AcquireReaderLock(locking_timeout);
+            contains(r, (int id)=>
             {
                 retval.Add(IdsToItems[id]);
             });
 
+            locker.ReleaseReaderLock();
             return retval;
         }
 
-        private void contains(Rectangle r, intproc v)
+        private void contains(Rectangle r, Action<int> v)
         {
             Stack<int> _parents = new Stack<int>();
             //private TIntStack parentsEntry = new TIntStack();
@@ -487,11 +487,13 @@ namespace RTree
         {
             Rectangle bounds = null;
 
+            locker.AcquireReaderLock(locking_timeout);
             Node<T> n = getNode(getRootNodeId());
             if (n != null && n.getMBR() != null)
             {
                 bounds = n.getMBR().copy();
             }
+            locker.ReleaseReaderLock();
             return bounds;
         }
 
@@ -525,9 +527,9 @@ namespace RTree
             return nextNodeId;
         }
 
-       
-       
-       
+
+
+
 
         /// <summary>
         /// Get a Node&lt;T&gt; object, given the ID of the node.
@@ -572,12 +574,11 @@ namespace RTree
             // each to a group.
 
             // debug code
+#if DEBUG
             float initialArea = 0;
-            if (log.IsDebugEnabled)
-            {
-                Rectangle union = n.mbr.union(newRect);
-                initialArea = union.area();
-            }
+            Rectangle union = n.mbr.union(newRect);
+            initialArea = union.area();
+#endif
 
             System.Array.Copy(initialEntryStatus, 0, entryStatus, 0, maxNodeEntries);
 
@@ -636,22 +637,21 @@ namespace RTree
             {
                 if (!n.mbr.Equals(calculateMBR(n)))
                 {
-                    log.Error("Error: splitNode old Node<T> MBR wrong");
+                    Debug.WriteLine("Error: splitNode old Node<T> MBR wrong");
                 }
 
                 if (!newNode.mbr.Equals(calculateMBR(newNode)))
                 {
-                    log.Error("Error: splitNode new Node<T> MBR wrong");
+                    Debug.WriteLine("Error: splitNode new Node<T> MBR wrong");
                 }
             }
 
             // debug code
-            if (log.IsDebugEnabled)
-            {
-                float newArea = n.mbr.area() + newNode.mbr.area();
-                float percentageIncrease = (100 * (newArea - initialArea)) / initialArea;
-                log.Debug("Node " + n.nodeId + " split. New area increased by " + percentageIncrease + "%");
-            }
+#if DEBUG
+            float newArea = n.mbr.area() + newNode.mbr.area();
+            float percentageIncrease = (100 * (newArea - initialArea)) / initialArea;
+            Debug.WriteLine($"Node { n.nodeId} split. New area increased by {percentageIncrease}%");
+#endif
 
             return newNode;
         }
@@ -677,10 +677,7 @@ namespace RTree
             // the new rectangle aswell.
             n.mbr.add(newRect);
 
-            if (log.IsDebugEnabled)
-            {
-                log.Debug("pickSeeds(): NodeId = " + n.nodeId + ", newRect = " + newRect);
-            }
+            Debug.WriteLine($"pickSeeds(): NodeId = {n.nodeId}, newRect = {newRect}");
 
             for (int d = 0; d < Rectangle.DIMENSIONS; d++)
             {
@@ -715,15 +712,11 @@ namespace RTree
 
                     if (normalizedSeparation > 1 || normalizedSeparation < -1)
                     {
-                        log.Error("Invalid normalized separation");
+                        Debug.WriteLine("Invalid normalized separation");
                     }
 
-                    if (log.IsDebugEnabled)
-                    {
-                        log.Debug("Entry " + i + ", dimension " + d + ": HighestLow = " + tempHighestLow +
-                                  " (index " + tempHighestLowIndex + ")" + ", LowestHigh = " +
-                                  tempLowestHigh + " (index " + tempLowestHighIndex + ", NormalizedSeparation = " + normalizedSeparation);
-                    }
+                    Debug.WriteLine($"Entry {i}, dimension {d}: HighestLow = {tempHighestLow} (index {tempHighestLowIndex})" + ", LowestHigh = " +
+                              tempLowestHigh + $" (index {tempLowestHighIndex}, NormalizedSeparation = {normalizedSeparation}");
 
                     // PS3 [Select the most extreme pair] Choose the pair with the greatest
                     // normalized separation along any dimension.
@@ -764,7 +757,7 @@ namespace RTree
 
 
 
-        
+
         /// <summary>
         /// Pick the next entry to be assigned to a group during a Node&lt;T&gt; split.
         /// [Determine cost of putting each entry in each group] For each 
@@ -782,10 +775,7 @@ namespace RTree
 
             maxDifference = float.NegativeInfinity;
 
-            if (log.IsDebugEnabled)
-            {
-                log.Debug("pickNext()");
-            }
+            Debug.WriteLine("pickNext()");
 
             for (int i = 0; i < maxNodeEntries; i++)
             {
@@ -794,7 +784,7 @@ namespace RTree
 
                     if (n.entries[i] == null)
                     {
-                        log.Error("Error: Node<T> " + n.nodeId + ", entry " + i + " is null");
+                        Debug.WriteLine($"Error: Node<T> {n.nodeId}, entry {i} is null");
                     }
 
                     float nIncrease = n.mbr.enlargement(n.entries[i]);
@@ -831,11 +821,9 @@ namespace RTree
                         }
                         maxDifference = difference;
                     }
-                    if (log.IsDebugEnabled)
-                    {
-                        log.Debug("Entry " + i + " group0 increase = " + nIncrease + ", group1 increase = " + newNodeIncrease +
-                                  ", diff = " + difference + ", MaxDiff = " + maxDifference + " (entry " + next + ")");
-                    }
+
+                    Debug.WriteLine($"Entry {i} group0 increase = {nIncrease}, group1 increase = {newNodeIncrease}, diff = " + 
+                        difference + $", MaxDiff = {maxDifference} (entry {next})");
                 }
             }
 
@@ -856,7 +844,7 @@ namespace RTree
             return next;
         }
 
-        
+
         /// <summary>
         /// Recursively searches the tree for the nearest entry. Other queries
         /// call execute() on an IntProcedure when a matching entry is found; 
@@ -870,7 +858,7 @@ namespace RTree
         /// <param name="n"></param>
         /// <param name="nearestDistance"></param>
         /// <returns></returns>
-        private float nearest(Point p, Node<T> n, List<int> nearestIds , float nearestDistance)
+        private float nearest(Point p, Node<T> n, List<int> nearestIds, float nearestDistance)
         {
             for (int i = 0; i < n.entryCount; i++)
             {
@@ -893,14 +881,14 @@ namespace RTree
                     if (tempDistance <= nearestDistance)
                     {
                         // search the child node
-                        nearestDistance = nearest(p, getNode(n.ids[i]),nearestIds, nearestDistance);
+                        nearestDistance = nearest(p, getNode(n.ids[i]), nearestIds, nearestDistance);
                     }
                 }
             }
             return nearestDistance;
         }
 
-    
+
         /// <summary>
         /// Recursively searches the tree for all intersecting entries.
         /// Immediately calls execute() on the passed IntProcedure when 
@@ -911,7 +899,7 @@ namespace RTree
         /// <param name="r"></param>
         /// <param name="v"></param>
         /// <param name="n"></param>
-        private void intersects(Rectangle r, intproc v, Node<T> n)
+        private void intersects(Rectangle r, Action<int> v, Node<T> n)
         {
             for (int i = 0; i < n.entryCount; i++)
             {
@@ -930,7 +918,7 @@ namespace RTree
             }
         }
 
-        private Rectangle oldRectangle = new Rectangle(0, 0, 0, 0,0,0);
+        private Rectangle oldRectangle = new Rectangle(0, 0, 0, 0, 0, 0);
 
         /// <summary>
         /// Used by delete(). Ensures that all nodes from the passed node
@@ -995,9 +983,10 @@ namespace RTree
                 }
                 e.entryCount = 0;
                 deletedNodeIds.Push(e.nodeId);
+                nodeMap.Remove(e.nodeId);
             }
         }
-       
+
         /// <summary>
         /// Used by add(). Chooses a leaf to add the rectangle to.
         /// </summary>
@@ -1013,7 +1002,7 @@ namespace RTree
             {
                 if (n == null)
                 {
-                    log.Error("Could not get root Node<T> (" + rootNodeId + ")");
+                    Debug.WriteLine($"Could not get root Node<T> ({rootNodeId})");
                 }
 
                 if (n.level == level)
@@ -1069,9 +1058,7 @@ namespace RTree
 
                 if (parent.ids[entry] != n.nodeId)
                 {
-                    log.Error("Error: entry " + entry + " in Node<T> " +
-                         parent.nodeId + " should point to Node<T> " +
-                         n.nodeId + "; actually points to Node<T> " + parent.ids[entry]);
+                    Debug.WriteLine($"Error: entry {entry} in Node<T> {parent.nodeId} should point to Node<T> {n.nodeId}; actually points to Node<T> {parent.ids[entry]}");
                 }
 
                 if (!parent.entries[entry].Equals(n.mbr))
@@ -1125,37 +1112,37 @@ namespace RTree
 
             if (n == null)
             {
-                log.Error("Error: Could not read Node<T> " + nodeId);
+                Debug.WriteLine($"Error: Could not read Node<T> {nodeId}");
             }
 
             if (n.level != expectedLevel)
             {
-                log.Error("Error: Node<T> " + nodeId + ", expected level " + expectedLevel + ", actual level " + n.level);
+                Debug.WriteLine($"Error: Node<T> {nodeId}, expected level {expectedLevel}, actual level {n.level}");
             }
 
             Rectangle calculatedMBR = calculateMBR(n);
 
             if (!n.mbr.Equals(calculatedMBR))
             {
-                log.Error("Error: Node<T> " + nodeId + ", calculated MBR does not equal stored MBR");
+                Debug.WriteLine($"Error: Node<T> {nodeId}, calculated MBR does not equal stored MBR");
             }
 
             if (expectedMBR != null && !n.mbr.Equals(expectedMBR))
             {
-                log.Error("Error: Node<T> " + nodeId + ", expected MBR (from parent) does not equal stored MBR");
+                Debug.WriteLine($"Error: Node<T> {nodeId}, expected MBR (from parent) does not equal stored MBR");
             }
 
             // Check for corruption where a parent entry is the same object as the child MBR
             if (expectedMBR != null && n.mbr.sameObject(expectedMBR))
             {
-                log.Error("Error: Node<T> " + nodeId + " MBR using same rectangle object as parent's entry");
+                Debug.WriteLine($"Error: Node<T> {nodeId} MBR using same rectangle object as parent's entry");
             }
 
             for (int i = 0; i < n.entryCount; i++)
             {
                 if (n.entries[i] == null)
                 {
-                    log.Error("Error: Node<T> " + nodeId + ", Entry " + i + " is null");
+                    Debug.WriteLine($"Error: Node<T> {nodeId}, Entry {i} is null");
                 }
 
                 if (n.level > 1)
@@ -1185,7 +1172,13 @@ namespace RTree
         {
             get
             {
-                return this.msize;
+                locker.AcquireReaderLock(locking_timeout);
+
+                var size = this.msize;
+
+                locker.ReleaseReaderLock();
+
+                return size;
             }
         }
 
