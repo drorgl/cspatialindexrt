@@ -9,6 +9,8 @@
     <Description>RTree implementation</Description>
     <PackageProjectUrl>https://github.com/drorgl/cspatialindexrt</PackageProjectUrl>
     <RepositoryUrl>https://github.com/drorgl/cspatialindexrt</RepositoryUrl>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageTags>rtree, spatial index</PackageTags>
   </PropertyGroup>
 
 </Project>
